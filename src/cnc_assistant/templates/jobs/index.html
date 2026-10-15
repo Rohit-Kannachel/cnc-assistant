@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import delete_button %}
+{% block title %}Jobs · CNC Assistant{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Jobs</h1>
+  <a class="btn" href="{{ url_for('jobs.new') }}">New job</a>
+</div>
+
+{% if jobs %}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>File</th><th class="num">Size X × Y × Z (mm)</th><th>Tool</th><th>Material</th>
+      <th>Status</th><th>Created</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for j in jobs %}
+    <tr>
+      <td><a href="{{ url_for('jobs.detail', job_id=j.id) }}">{{ j.name }}</a></td>
+      <td class="muted small">{{ j.original_filename }}</td>
+      <td class="num">
+        {% if j.dim_x_mm is not none %}{{ j.dim_x_mm|mm }} × {{ j.dim_y_mm|mm }} × {{ j.dim_z_mm|mm }}{% else %}—{% endif %}
+      </td>
+      <td>{{ j.tool.name if j.tool else '—' }}</td>
+      <td>{{ j.material.name if j.material else '—' }}</td>
+      <td><span class="badge badge-{{ j.status }}">{{ j.status.replace('_', ' ') }}</span></td>
+      <td class="muted small">{{ j.created_at.strftime('%Y-%m-%d %H:%M') if j.created_at }}</td>
+      <td class="actions">{{ delete_button(url_for('jobs.delete', job_id=j.id), j.name) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No jobs yet. <a href="{{ url_for('jobs.new') }}">Upload an STL</a> to start one.</p>
+{% endif %}
+{% endblock %}

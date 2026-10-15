@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "_macros.html" as f %}
+{% block title %}{{ title }} · CNC Assistant{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="post" enctype="multipart/form-data" class="form-grid">
+  {{ f.input("name", "Name", tool.name, hint="e.g. 2-flute carbide 3.175mm") }}
+  {{ f.select("tool_type", "Type", tool.tool_type or "flat_end_mill", tool_types) }}
+  {{ f.input("cut_dia_mm", "Cutting diameter (mm)", tool.cut_dia_mm, type="number", step="any") }}
+  {{ f.input("shank_dia_mm", "Shank diameter (mm)", tool.shank_dia_mm, type="number", step="any") }}
+  {{ f.input("flutes", "Flutes", tool.flutes, type="number", step="1") }}
+  {{ f.select("material", "Tool material", tool.material or "carbide", tool_materials) }}
+  {{ f.input("flute_length_mm", "Flute length (mm)", tool.flute_length_mm, type="number", step="any", required=False) }}
+  {{ f.input("total_length_mm", "Total length (mm)", tool.total_length_mm, type="number", step="any", required=False,
+             hint="Overall length: flute length + shank length") }}
+
+  <div class="field field-wide">
+    <span>Photo <small class="muted">(optional)</small></span>
+    <div class="photo-field">
+      {% if tool.image_filename %}
+        <img class="photo-preview" src="{{ url_for('tools.image', tool_id=tool.id, v=tool.image_filename) }}" alt="Current photo of {{ tool.name }}">
+      {% endif %}
+      <div class="photo-inputs">
+        <input type="file" name="image" accept="image/jpeg,image/png,image/webp">
+        <small class="muted">JPG, PNG or WebP. Large photos are shrunk automatically.</small>
+        {% if tool.image_filename %}
+          <label class="checkbox"><input type="checkbox" name="remove_image" value="1"> Remove current photo</label>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {{ f.textarea("notes", "Notes", tool.notes) }}
+
+  <div class="form-actions">
+    <button type="submit" class="btn">Save</button>
+    <a class="btn btn-secondary" href="{{ url_for('tools.index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

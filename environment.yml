@@ -1,0 +1,11 @@
+# Conda environment for cnc_assistant.
+#   conda env create -f environment.yml
+#   conda activate cnc_assistant
+name: cnc_assistant
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -e .

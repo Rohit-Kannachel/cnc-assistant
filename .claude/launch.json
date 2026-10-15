@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cnc-assistant",
+      "runtimeExecutable": ".venv/Scripts/cnc-assistant.exe",
+      "runtimeArgs": ["--port", "5055"],
+      "port": 5055
+    }
+  ]
+}

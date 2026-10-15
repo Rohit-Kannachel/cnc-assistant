@@ -121,7 +121,7 @@ After every analysis the job is planned by the **rules engine**, [planner/rules_
 3. **Pocketing** for each pocket size (uses the material's step-over).
 4. **Trace** for engraving: non-through features 0.5 mm deep or less.
 5. **Contour** finish if the part has sloped/curved walls, or after roughing.
-6. **Outline** last, with 4–8 tabs (one per ~50 mm of perimeter), if *Cut free from stock* is ticked.
+6. **Outline** last, with 4–12 tabs (one per ~28 mm of outline, 2.5 mm wide), if *Cut free from stock* is ticked.
 
 [planner/adapter.py](src/cnc_assistant/planner/adapter.py) converts the app's data into the engine's inputs. It groups identical holes and pockets and records which feature numbers each operation covers, so toolpath generation can find their positions later. Steps and through cutouts are planned as pockets.
 
@@ -146,25 +146,47 @@ pytest
 
 After planning, the job's G-code is generated automatically. **Download G-code (.nc)** is at the top of the job page and in its G-code section.
 
-**Machine setup** (also written in the file's header and on the job page):
-- **X0 Y0** = the lower-left corner of the *part*. The outline cut goes one tool radius outside the part, so the stock must extend past it; the page tells you how far.
-- **Z0** = the top of the stock.
-- Through cuts go 0.1 mm below the stock, so use a spoilboard.
-- With a new file, do an air cut first (Z0 a few mm above the stock).
+**Stock & work origin.** Set these in the *Stock & work origin* panel on the job page. Saving re-plans and regenerates the G-code.
+
+| Setting | Options | Default |
+|---|---|---|
+| Stock X × Y × thickness | any size in mm | part + 5 mm on every side; the part's own thickness |
+| Part position | centred, or the part's front-left corner at X, Y from the stock's front-left corner | centred |
+| X0 Y0 | a stock corner (front-left, front-right, back-left, back-right), the stock centre, the part's front-left corner, or the part centre | stock front-left |
+| Z0 | top of the stock, or bottom of the stock (the spoilboard surface) | top of the stock |
+
+"Front" is the side nearest you (lowest Y), "left" is lowest X.
+
+The page shows:
+- a sketch of the stock, the part and the origin,
+- the toolpath preview drawn in work coordinates.
+
+It warns if:
+- the part runs off the stock,
+- there's under one tool diameter of stock beside the part,
+- the stock is bigger than the bed,
+- the stock is thicker than the part (the part's top is set level with the stock top and there's no facing yet, so the part comes out at stock thickness),
+- the stock is thinner than the part.
+
+How it works ([services/setup.py](src/cnc_assistant/services/setup.py)): toolpaths are generated around the part as before, then every move is shifted into your work coordinates when the G-code is written. The file header records the stock, the part position and where to zero.
+
+**Other setup notes:**
+- Through cuts go 0.2 mm below the stock, so use a spoilboard.
+- With a new file, do an air cut first (zero Z a few mm higher than normal).
 
 **How operations become moves** ([services/toolpath.py](src/cnc_assistant/services/toolpath.py)):
 
 | Operation | Moves |
 |---|---|
-| drilling | Hole the same size as the tool: peck straight down one step-down at a time, lifting out between pecks. Bigger hole: helical ramp, then cleared outward. |
-| pocketing / trace | Nested offset loops cleared inside-out, each depth entered with a 3° ramp. |
+| drilling | Hole the same size as the tool: peck straight down one step-down at a time, lifting out between pecks. Up to 2.5 × the tool: helical bore (0.4 mm per turn) at the milling feed, cleared outward. Bigger *through* hole: cut round the wall only; the middle drops out as a slug on the last pass. |
+| pocketing / trace | Nested offset loops cleared inside-out, each depth entered with a 3° ramp. Big through cutouts are cut round the wall only (slug drops), like big holes. |
 | roughing | The same on pockets/steps/cutouts, leaving 0.2 mm on the walls. Does nothing if there are none. |
 | contour | One finishing loop around each pocket/step wall per depth. |
 | outline | Around the outside, last, with tabs: Z is held up over each tab once the cut gets deeper than the tab. |
 
 Cutting direction is climb milling for a clockwise (M3) spindle. Operations the plan flags as impossible (the tool is bigger than the hole) are **left out** of the file and listed on the page.
 
-[services/gcode.py](src/cnc_assistant/services/gcode.py) writes the moves as GRBL G-code (G21/G90, `G0`/`G1`, ASCII-only comments) and draws the toolpath preview.
+[services/gcode.py](src/cnc_assistant/services/gcode.py) writes the moves as GRBL G-code (G21/G90, `G0`/`G1`, and `G2`/`G3` arcs wherever the path follows a circle; ASCII-only comments) and draws the toolpath preview. Arcs keep files small (the 150 mm lid: 1,855 lines instead of 38,000) and motion smooth, as in Fusion's output.
 
 **Safety tests.** [tests/test_gcode.py](tests/test_gcode.py) generates G-code for the sample part, reads it back, and simulates the cut on a 0.2 mm height map ([tests/gcode_sim.py](tests/gcode_sim.py)). It fails if:
 - a rapid move hits material,

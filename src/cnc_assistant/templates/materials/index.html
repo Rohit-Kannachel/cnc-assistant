@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import delete_button %}
+{% block title %}Materials · CNC Assistant{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Material library</h1>
+  <a class="btn" href="{{ url_for('materials.new') }}">Add material</a>
+</div>
+
+{% if materials %}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>Category</th><th class="num">Spindle (RPM)</th><th class="num">Feed (mm/min)</th>
+      <th class="num">Plunge (mm/min)</th><th class="num">Step down (mm)</th><th class="num">Step over (mm)</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in materials %}
+    <tr>
+      <td>
+        {{ m.name }}
+        {% if m.notes %}<div class="muted small">{{ m.notes }}</div>{% endif %}
+      </td>
+      <td>{{ categories.get(m.category, m.category) }}</td>
+      <td class="num">{{ "{:,}".format(m.spindle_rpm) }}</td>
+      <td class="num">{{ m.feed_rate_mmpm }}</td>
+      <td class="num">{{ m.plunge_rate_mmpm }}</td>
+      <td class="num">{{ m.step_down_mm }}</td>
+      <td class="num">{{ m.step_over_mm }}</td>
+      <td class="actions">
+        <a class="btn btn-small btn-secondary" href="{{ url_for('materials.edit', material_id=m.id) }}">Edit</a>
+        {{ delete_button(url_for('materials.delete', material_id=m.id), m.name) }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No materials yet.</p>
+{% endif %}
+{% endblock %}

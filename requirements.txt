@@ -1,0 +1,17 @@
+# Runtime dependencies (mirrors [project.dependencies] in pyproject.toml).
+#
+#   pip install -r requirements.txt   -> dependencies only
+#   pip install -e .                  -> dependencies + the app itself (recommended)
+#
+# If you change a dependency, update pyproject.toml too.
+flask>=3.0
+flask-sqlalchemy>=3.1
+python-dotenv>=1.0
+trimesh>=4.0
+shapely>=2.0
+scipy>=1.11
+networkx>=3.0
+rtree>=1.0
+numpy>=1.26
+pillow>=10.0
+anthropic>=0.40

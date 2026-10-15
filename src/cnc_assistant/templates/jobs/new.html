@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}New job · CNC Assistant{% endblock %}
+{% block content %}
+<h1>New job</h1>
+
+{% if not tools or not materials %}
+  <div class="flash flash-error">
+    You need at least one
+    {% if not tools %}<a href="{{ url_for('tools.new') }}">tool</a>{% endif %}
+    {% if not tools and not materials %} and one {% endif %}
+    {% if not materials %}<a href="{{ url_for('materials.new') }}">material</a>{% endif %}
+    before creating a job.
+  </div>
+{% else %}
+<form method="post" enctype="multipart/form-data" class="form-grid">
+  <label class="field field-wide">
+    <span>STL file</span>
+    <input type="file" name="stl" accept=".stl" required>
+    <small class="muted">Export from Inventor as STL. STEP files aren't supported yet.</small>
+  </label>
+
+  <label class="field">
+    <span>Job name <small class="muted">(optional)</small></span>
+    <input type="text" name="name" value="{{ form.get('name', '') }}">
+    <small class="muted">Defaults to the file name</small>
+  </label>
+
+  <label class="field">
+    <span>STL units</span>
+    <select name="units">
+      {% for u in units %}
+        <option value="{{ u }}" {% if form.get('units', 'mm') == u %}selected{% endif %}>{{ 'millimetres' if u == 'mm' else 'inches' }}</option>
+      {% endfor %}
+    </select>
+    <small class="muted">Units the STL was exported in (check Inventor's export options)</small>
+  </label>
+
+  <label class="field">
+    <span>Tool</span>
+    <select name="tool_id">
+      {% for t in tools %}
+        <option value="{{ t.id }}" {% if form.get('tool_id')|string == t.id|string %}selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field">
+    <span>Material</span>
+    <select name="material_id">
+      {% for m in materials %}
+        <option value="{{ m.id }}" {% if form.get('material_id')|string == m.id|string %}selected{% endif %}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field">
+    <span>Stock thickness (mm) <small class="muted">(optional)</small></span>
+    <input type="number" name="stock_thickness_mm" step="any" value="{{ form.get('stock_thickness_mm', '') }}">
+    <small class="muted">Leave blank if the stock is the same thickness as the part</small>
+  </label>
+
+  <div class="field">
+    <span>Outline</span>
+    <label class="checkbox">
+      <input type="checkbox" name="cut_from_stock" value="1" {% if not form or form.get('cut_from_stock') %}checked{% endif %}>
+      Cut the part free from the stock (outline with tabs)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn">Upload &amp; analyse</button>
+    <a class="btn btn-secondary" href="{{ url_for('jobs.index') }}">Cancel</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

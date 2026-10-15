@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% from "_macros.html" import delete_button %}
+{% block title %}{{ job.name }} · CNC Assistant{% endblock %}
+
+{% macro yesno(value) %}{% if value %}<span class="ok">Yes</span>{% else %}<span class="bad">No</span>{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ job.name }} <span class="badge badge-{{ job.status }}">{{ job.status.replace('_', ' ') }}</span></h1>
+    <p class="muted small">{{ job.original_filename }} &middot; uploaded {{ job.created_at.strftime('%Y-%m-%d %H:%M') if job.created_at }}</p>
+  </div>
+  <div class="head-actions">
+    {% if job.gcode_filename %}
+      <a class="btn" href="{{ url_for('jobs.download_gcode', job_id=job.id) }}">Download G-code (.nc)</a>
+    {% endif %}
+    <a class="btn btn-secondary" href="{{ url_for('jobs.download_stl', job_id=job.id) }}">Download STL</a>
+    {{ delete_button(url_for('jobs.delete', job_id=job.id), job.name) }}
+  </div>
+</div>
+
+{# Settings used for the analysis; changing them re-runs it. #}
+<form method="post" action="{{ url_for('jobs.reanalyse', job_id=job.id) }}" class="settings-bar">
+  <label>Tool
+    <select name="tool_id">
+      {% if not job.tool %}<option value="">(deleted, choose one)</option>{% endif %}
+      {% for t in tools %}<option value="{{ t.id }}" {% if job.tool_id == t.id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Material
+    <select name="material_id">
+      {% if not job.material %}<option value="">(deleted, choose one)</option>{% endif %}
+      {% for m in materials %}<option value="{{ m.id }}" {% if job.material_id == m.id %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>STL units
+    <select name="units">
+      {% for u in units %}<option value="{{ u }}" {% if job.units == u %}selected{% endif %}>{{ u }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="btn btn-small">Re-analyse &amp; plan</button>
+</form>
+
+{% if not a %}
+  <p class="muted">This job hasn't been analysed yet.</p>
+{% else %}
+
+{# Stock size, where the part sits in it, and where X0 Y0 Z0 is. Saving regenerates the G-code. #}
+<section class="panel" id="setup">
+  <h2>Stock &amp; work origin</h2>
+  <div class="setup-grid">
+    <form method="post" action="{{ url_for('jobs.update_setup', job_id=job.id) }}" class="setup-form">
+      <fieldset>
+        <legend>Stock (mm)</legend>
+        <div class="row">
+          <label>X (width)
+            <input type="number" name="stock_x_mm" step="any" placeholder="{{ setup.stock_x|mm }}"
+                   value="{{ job.stock_x_mm if job.stock_x_mm is not none else '' }}">
+          </label>
+          <label>Y (depth)
+            <input type="number" name="stock_y_mm" step="any" placeholder="{{ setup.stock_y|mm }}"
+                   value="{{ job.stock_y_mm if job.stock_y_mm is not none else '' }}">
+          </label>
+          <label>Thickness
+            <input type="number" name="stock_thickness_mm" step="any" placeholder="{{ setup.part_z|mm }}"
+                   value="{{ job.stock_thickness_mm if job.stock_thickness_mm is not none else '' }}">
+          </label>
+        </div>
+        <small class="muted">Blank = automatic: the part plus 5 mm all round, and the part's own thickness.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Part position in the stock</legend>
+        <label class="checkbox"><input type="radio" name="placement" value="centred" {% if setup.centred %}checked{% endif %}> Centred</label>
+        <label class="checkbox"><input type="radio" name="placement" value="offset" {% if not setup.centred %}checked{% endif %}>
+          Part's front-left corner at</label>
+        <div class="row">
+          <label>X from stock edge
+            <input type="number" name="part_offset_x_mm" step="any" value="{{ setup.part_x|mm }}">
+          </label>
+          <label>Y from stock edge
+            <input type="number" name="part_offset_y_mm" step="any" value="{{ setup.part_y|mm }}">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Work origin (where you zero the machine)</legend>
+        <div class="row">
+          <label>X0 Y0
+            <select name="origin_xy">
+              {% for key, label in origin_xy_options.items() %}
+                <option value="{{ key }}" {% if setup.origin_xy == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Z0
+            <select name="origin_z">
+              {% for key, label in origin_z_options.items() %}
+                <option value="{{ key }}" {% if setup.origin_z == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+      </fieldset>
+
+      <label class="checkbox">
+        <input type="checkbox" name="cut_from_stock" value="1" {% if job.cut_from_stock is not false %}checked{% endif %}>
+        Cut the part free from the stock (outline with tabs)
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="btn">Save &amp; regenerate G-code</button>
+      </div>
+    </form>
+
+    <div>
+      <div class="preview">{{ setup_diagram|safe }}</div>
+      <p class="muted small">
+        Top view: stock {{ setup.stock_x|mm }} × {{ setup.stock_y|mm }} × {{ setup.stock_z|mm }} mm, part (blue box) at
+        {{ setup.part_x|mm }}, {{ setup.part_y|mm }} from the stock's front-left corner. The red dot is X0 Y0;
+        Z0 is the {{ setup.origin_z_label|lower }}.
+      </p>
+      {% if setup.warnings %}
+      <div class="warnings">
+        <ul>{% for w in setup.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+{% if a.warnings %}
+<div class="warnings">
+  <strong>Warnings</strong>
+  <ul>{% for w in a.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="job-grid">
+  <section class="panel">
+    <h2>Top view</h2>
+    {% if a.preview_svg %}
+      <div class="preview">{{ a.preview_svg|safe }}</div>
+      <p class="muted small">
+        {{ a.dimensions.x|mm }} × {{ a.dimensions.y|mm }} mm, origin at the lower-left corner.
+        Darker = deeper; empty = cut all the way through. Numbers match the feature list.
+      </p>
+    {% else %}
+      <p class="muted">No preview available.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <h2>Summary</h2>
+    <dl class="specs">
+      <dt>Size (X × Y × Z)</dt><dd>{{ a.dimensions.x|mm }} × {{ a.dimensions.y|mm }} × {{ a.dimensions.z|mm }} mm</dd>
+      <dt>Volume</dt><dd>{{ '{:,.0f}'.format(a.volume_mm3) ~ ' mm³' if a.volume_mm3 is not none else '— (mesh not watertight)' }}</dd>
+      <dt>Triangles</dt><dd>{{ '{:,}'.format(a.face_count) }}</dd>
+      <dt>Watertight</dt><dd>{{ yesno(a.is_watertight) }}</dd>
+      <dt>2.5D machinable</dt><dd>{{ yesno(a.is_2_5d) }}</dd>
+      <dt>Flat part (&lt; 8 mm)</dt><dd>{{ 'Yes' if a.is_flat else 'No' }}</dd>
+      <dt>Separate pieces</dt><dd>{{ a.outline.separate_pieces if a.outline else '—' }}</dd>
+      <dt>Step down</dt><dd>{{ a.step_down_mm|mm }} mm → {{ a.z_layers|length }} passes to full depth</dd>
+      <dt>Tool</dt><dd>{{ job.tool.name ~ ' (Ø' ~ job.tool.cut_dia_mm|mm(3) ~ ' mm)' if job.tool else '—' }}</dd>
+    </dl>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Features</h2>
+  {% if a.features %}
+  <table>
+    <thead>
+      <tr><th class="num">#</th><th>Type</th><th class="num">Position X, Y (mm)</th><th class="num">Size (mm)</th>
+          <th class="num">Depth (mm)</th><th>Fits tool</th></tr>
+    </thead>
+    <tbody>
+      {% for f in a.features %}
+      <tr>
+        <td class="num">{{ loop.index }}</td>
+        <td>{{ f.type.replace('_', ' ') }}{% if f.islands %} <span class="muted small">({{ f.islands }} island{{ 's' if f.islands != 1 }})</span>{% endif %}</td>
+        <td class="num">{{ f.center[0]|mm }}, {{ f.center[1]|mm }}</td>
+        <td class="num">{% if f.diameter %}Ø{{ f.diameter|mm }}{% else %}{{ f.size[0]|mm }} × {{ f.size[1]|mm }}{% endif %}</td>
+        <td class="num">{% if f.start_depth %}{{ f.start_depth|mm }} → {% endif %}{{ f.depth|mm }}</td>
+        <td>{% if f.fits_tool is not defined or f.fits_tool is none %}—{% else %}{{ yesno(f.fits_tool) }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No holes, pockets or steps found: just an outline cut.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Depth levels</h2>
+  <p class="muted small">The part's cross-section is the same within each level.</p>
+  <table>
+    <thead><tr><th class="num">From (mm)</th><th class="num">To (mm)</th><th class="num">Regions</th><th class="num">Openings</th><th class="num">Material area (mm²)</th></tr></thead>
+    <tbody>
+      {% for lv in a.levels %}
+      <tr>
+        <td class="num">{{ lv.top_depth|mm }}</td>
+        <td class="num">{{ lv.bottom_depth|mm }}</td>
+        <td class="num">{{ lv.regions }}</td>
+        <td class="num">{{ lv.openings }}</td>
+        <td class="num">{{ '{:,.1f}'.format(lv.area_mm2) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <details>
+    <summary>{{ a.z_layers|length }} step-down passes</summary>
+    <p class="small">{% for p in a.z_layers %}{{ p.pass }}: Z{{ p.z|mm }}{{ ', ' if not loop.last }}{% endfor %}</p>
+  </details>
+</section>
+
+<section class="panel" id="plan">
+  <h2>Operation plan {% if plan %}<span class="badge">{{ plan.planner.replace('_', ' ') }}</span>{% endif %}</h2>
+  {% if not plan %}
+    <p class="muted">No plan yet. Click <em>Re-analyse &amp; plan</em> above to generate one.</p>
+  {% else %}
+    <p>{{ plan.summary }}</p>
+
+    {% if plan.global_warnings %}
+    <div class="warnings">
+      <strong>Planner warnings</strong>
+      <ul>{% for w in plan.global_warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    <ol class="ops">
+      {% for op in plan.operations %}
+      <li class="op op-{{ op.type }}">
+        <div class="op-head">
+          <span class="op-num">{{ op.order }}</span>
+          <span class="op-type">{{ op.type }}</span>
+          <span class="op-desc">{{ op.description }}</span>
+        </div>
+        <dl class="op-params">
+          <div><dt>Spindle</dt><dd>{{ '{:,}'.format(op.spindle_rpm) }} RPM</dd></div>
+          <div><dt>Feed</dt><dd>{{ op.feed_rate_mmpm|mm(1) }} mm/min</dd></div>
+          <div><dt>Plunge</dt><dd>{{ op.plunge_rate_mmpm|mm(1) }} mm/min</dd></div>
+          <div><dt>Step down</dt><dd>{{ op.step_down_mm|mm }} mm</dd></div>
+          <div><dt>Step over</dt><dd>{{ op.step_over_mm|mm ~ ' mm' if op.step_over_mm is not none else '—' }}</dd></div>
+          <div><dt>Depth</dt><dd>{{ op.depth_mm|mm }} mm</dd></div>
+          <div><dt>Entry</dt><dd>{{ op.entry_type }}</dd></div>
+          {% if op.tabs %}
+          <div><dt>Tabs</dt><dd>{{ op.tab_count }} × {{ op.tab_width_mm|mm }} wide × {{ op.tab_height_mm|mm }} tall</dd></div>
+          {% endif %}
+        </dl>
+        {% if op.feature_refs %}
+          <p class="small">Features: {% for n in op.feature_refs %}<span class="feat-ref">{{ n }}</span>{% endfor %}</p>
+        {% endif %}
+        {% if op.notes %}<p class="muted small">{{ op.notes }}</p>{% endif %}
+        {% for w in op.warnings %}<p class="op-warning small">⚠ {{ w }}</p>{% endfor %}
+      </li>
+      {% endfor %}
+    </ol>
+    <p class="muted small">Generated {{ plan.generated_at[:16].replace('T', ' ') }} UTC by the rules engine (planner/rules_engine.py).</p>
+  {% endif %}
+</section>
+
+<section class="panel" id="gcode">
+  <h2>G-code</h2>
+  {% if not gcode %}
+    <p class="muted">No G-code yet. It's generated automatically after planning; click <em>Re-analyse &amp; plan</em> above.</p>
+  {% else %}
+    {% set s = gcode.stats %}
+    <div class="gcode-head">
+      <a class="btn" href="{{ url_for('jobs.download_gcode', job_id=job.id) }}">Download G-code (.nc)</a>
+      <span class="muted small">{{ '{:,}'.format(s.lines) }} lines &middot; about {{ s.minutes|round|int }} min &middot; GRBL</span>
+    </div>
+
+    <div class="setup">
+      <strong>Before you run it</strong>
+      <ol>
+        {% set gs = gcode.setup %}
+        {% if gs %}
+        <li>Clamp stock <strong>{{ gs.stock_x|mm }} × {{ gs.stock_y|mm }} × {{ gs.stock_z|mm }} mm</strong>
+            (the part sits {{ gs.part_x|mm }}, {{ gs.part_y|mm }} mm in from its front-left corner).</li>
+        <li>Zero <strong>X0 Y0 at the {{ gs.origin_xy_label|lower }}</strong> and
+            <strong>Z0 at the {{ gs.origin_z_label|lower }}</strong>.</li>
+        <li>Toolpaths span X{{ s.min_x|mm }} … X{{ s.max_x|mm }}, Y{{ s.min_y|mm }} … Y{{ s.max_y|mm }}:
+            check the machine can reach that from where you set X0 Y0.</li>
+        {% else %}
+        <li>Zero X0 Y0 at the front-left corner of the part and Z0 on the top of the stock
+            (this file is from before stock settings existed: save the Stock &amp; work origin form to regenerate it).</li>
+        {% endif %}
+        <li>Set the spindle speed if yours is manual: {{ '{:,}'.format(plan.operations[0].spindle_rpm) if plan and plan.operations else '—' }} RPM.</li>
+        <li>Cuts go to Z{{ s.min_z|mm }}, {{ (-s.min_z + (gs.dz if gs else 0) - gcode.cut_depth_mm)|mm }} mm below the stock
+            for a clean break-through: use a spoilboard.</li>
+        <li>First time with a new file: do an <strong>air cut</strong> (set Z0 a few mm higher than it should be) and watch the moves.</li>
+      </ol>
+    </div>
+
+    {% if gcode.skipped %}
+    <div class="warnings">
+      <strong>Not in the G-code</strong>
+      <ul>{% for msg in gcode.skipped %}<li>{{ msg }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    {% if gcode.notes %}
+      <ul class="muted small">{% for n in gcode.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    {% if gcode.toolpath_svg %}
+    <h3>Toolpaths (top view)</h3>
+    <div class="preview">{{ gcode.toolpath_svg|safe }}</div>
+    <p class="muted small">
+      Coloured lines are cutting moves (one colour per operation; hover for its number), dashed grey lines are rapid moves,
+      the grey outline is the part, and the red dot is X0 Y0.
+    </p>
+    {% endif %}
+
+    {% if gcode_preview %}
+    <details>
+      <summary>Show the first {{ gcode_preview_lines }} lines</summary>
+      <pre class="gcode">{{ gcode_preview }}</pre>
+    </details>
+    {% endif %}
+  {% endif %}
+</section>
+
+{% endif %}
+{% endblock %}

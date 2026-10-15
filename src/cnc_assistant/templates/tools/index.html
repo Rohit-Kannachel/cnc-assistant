@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import delete_button %}
+{% block title %}Tools · CNC Assistant{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Tool library</h1>
+  <a class="btn" href="{{ url_for('tools.new') }}">Add tool</a>
+</div>
+
+{% if tools %}
+<div class="tool-grid">
+  {% for t in tools %}
+  <article class="tool-card">
+    <div class="tool-photo">
+      {% if t.image_filename %}
+        <img src="{{ url_for('tools.image', tool_id=t.id, v=t.image_filename) }}" alt="Photo of {{ t.name }}" loading="lazy">
+      {% else %}
+        <span class="muted small">No photo</span>
+      {% endif %}
+    </div>
+    <div class="tool-body">
+      <h2>{{ t.name }}</h2>
+      <p class="muted small">{{ t.tool_type.replace('_', ' ') }} &middot; {{ t.flutes }} flute{{ 's' if t.flutes != 1 }} &middot; {{ t.material }}</p>
+      <dl class="specs">
+        <dt>Cut Ø</dt><dd>{{ t.cut_dia_mm }} mm</dd>
+        <dt>Shank Ø</dt><dd>{{ t.shank_dia_mm }} mm</dd>
+        <dt>Flute length</dt><dd>{{ t.flute_length_mm|mm ~ ' mm' if t.flute_length_mm is not none else '—' }}</dd>
+        <dt>Total length</dt><dd>{{ t.total_length_mm|mm ~ ' mm' if t.total_length_mm is not none else '—' }}</dd>
+        {% if t.shank_length_mm is not none %}
+          <dt>Shank length</dt><dd>{{ t.shank_length_mm|mm ~ ' mm' }}</dd>
+        {% endif %}
+      </dl>
+      {% if t.notes %}<p class="muted small">{{ t.notes }}</p>{% endif %}
+    </div>
+    <div class="tool-actions">
+      <a class="btn btn-small btn-secondary" href="{{ url_for('tools.edit', tool_id=t.id) }}">Edit</a>
+      {{ delete_button(url_for('tools.delete', tool_id=t.id), t.name) }}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">No tools yet.</p>
+{% endif %}
+{% endblock %}

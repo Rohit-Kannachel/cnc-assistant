@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CNC Assistant{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <nav class="nav">
+    <a class="brand" href="{{ url_for('main.index') }}">CNC Assistant</a>
+    <a href="{{ url_for('tools.index') }}" class="{{ 'active' if request.blueprint == 'tools' }}">Tools</a>
+    <a href="{{ url_for('materials.index') }}" class="{{ 'active' if request.blueprint == 'materials' }}">Materials</a>
+    <a href="{{ url_for('jobs.index') }}" class="{{ 'active' if request.blueprint == 'jobs' }}">Jobs</a>
+  </nav>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

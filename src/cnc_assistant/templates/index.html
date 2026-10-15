@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+<p class="muted">{{ machine }} &middot; GRBL &middot; bed {{ bed[0]|int }} &times; {{ bed[1]|int }} mm</p>
+
+<div class="cards">
+  <a class="card" href="{{ url_for('tools.index') }}">
+    <span class="card-num">{{ tool_count }}</span>
+    <span>Tools</span>
+  </a>
+  <a class="card" href="{{ url_for('materials.index') }}">
+    <span class="card-num">{{ material_count }}</span>
+    <span>Materials</span>
+  </a>
+  <a class="card" href="{{ url_for('jobs.index') }}">
+    <span class="card-num">{{ job_count }}</span>
+    <span>Jobs</span>
+  </a>
+</div>
+
+<p><a class="btn" href="{{ url_for('jobs.new') }}">Upload an STL</a></p>
+{% endblock %}

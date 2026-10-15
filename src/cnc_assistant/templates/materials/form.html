@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% import "_macros.html" as f %}
+{% block title %}{{ title }} · CNC Assistant{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="post" class="form-grid">
+  {{ f.input("name", "Name", material.name, hint="e.g. Acrylic / Plexiglass") }}
+  {{ f.select("category", "Category", material.category or "acrylic", categories) }}
+  {{ f.input("spindle_rpm", "Spindle speed (RPM)", material.spindle_rpm, type="number", step="1") }}
+  {{ f.input("feed_rate_mmpm", "Feed rate XY (mm/min)", material.feed_rate_mmpm, type="number", step="any") }}
+  {{ f.input("plunge_rate_mmpm", "Plunge rate Z (mm/min)", material.plunge_rate_mmpm, type="number", step="any") }}
+  {{ f.input("step_down_mm", "Step down per pass (mm)", material.step_down_mm, type="number", step="any") }}
+  {{ f.input("step_over_mm", "Step over (mm)", material.step_over_mm, type="number", step="any",
+             hint="Typically 40-50% of the bit diameter") }}
+  {{ f.textarea("notes", "Notes", material.notes) }}
+
+  <div class="form-actions">
+    <button type="submit" class="btn">Save</button>
+    <a class="btn btn-secondary" href="{{ url_for('materials.index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

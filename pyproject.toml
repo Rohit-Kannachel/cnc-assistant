@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cnc-assistant"
+version = "0.1.0"
+description = "Local web app for planning CNC jobs and generating GRBL gcode for a Genmitsu 3018 Pro"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "flask-sqlalchemy>=3.1",
+    "python-dotenv>=1.0",
+    "trimesh>=4.0",
+    "shapely>=2.0",
+    # trimesh needs these for slicing meshes into 2D sections
+    "scipy>=1.11",
+    "networkx>=3.0",
+    "rtree>=1.0",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+# Production WSGI server for running on the Linux machine later.
+server = ["gunicorn>=22.0"]
+# pytest for tests; mapbox-earcut + manifold3d to build the sample STLs (scripts/make_sample_stl.py)
+dev = ["pytest>=8.0", "mapbox-earcut>=1.0", "manifold3d>=2.4"]
+
+[project.scripts]
+# `cnc-assistant` starts the app (see cnc_assistant/cli.py).
+cnc-assistant = "cnc_assistant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# Ship templates and static files inside the installed package.
+cnc_assistant = ["templates/**/*", "static/**/*"]

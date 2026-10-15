@@ -1,0 +1,38 @@
+{# Reusable form fields. `value` may be None for a blank field. #}
+
+{% macro input(name, label, value, type="text", step=None, required=True, hint=None) %}
+<label class="field">
+  <span>{{ label }}{% if not required %} <small class="muted">(optional)</small>{% endif %}</span>
+  <input type="{{ type }}" name="{{ name }}" value="{{ '' if value is none else value }}"
+         {% if step %}step="{{ step }}"{% endif %} {% if required %}required{% endif %}>
+  {% if hint %}<small class="muted">{{ hint }}</small>{% endif %}
+</label>
+{% endmacro %}
+
+{# `options` is a list of values, or a dict of value -> display label. #}
+{% macro select(name, label, value, options) %}
+<label class="field">
+  <span>{{ label }}</span>
+  <select name="{{ name }}">
+    {% for opt in options %}
+      <option value="{{ opt }}" {% if opt == value %}selected{% endif %}>
+        {{ options[opt] if options is mapping else opt.replace('_', ' ') }}
+      </option>
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro textarea(name, label, value) %}
+<label class="field field-wide">
+  <span>{{ label }} <small class="muted">(optional)</small></span>
+  <textarea name="{{ name }}" rows="4">{{ value or '' }}</textarea>
+</label>
+{% endmacro %}
+
+{% macro delete_button(action, what) %}
+<form method="post" action="{{ action }}" class="inline"
+      onsubmit='return confirm({{ ("Delete " ~ what ~ "?")|tojson }});'>
+  <button type="submit" class="btn btn-danger btn-small">Delete</button>
+</form>
+{% endmacro %}
