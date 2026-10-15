@@ -206,8 +206,18 @@ def test_lid_groove_is_a_pocket_and_big_through_hole_is_profiled(tmp_path):
     top = part_top(geom, s.xs(), s.ys())
     assert (top - s.height)[np.isfinite(top)].max() < 0.02  # no gouges
     through = -(5.0 + THROUGH_EXTRA_MM)
-    assert s.at(30 + 8 - 1.0, 30) == pytest.approx(through, abs=0.01)  # wall of the Ø16 hole cut through
-    assert s.at(30, 30) == 0.0  # centre left alone: it drops out as a slug
+    profile = next(op for op in plan["operations"] if op["type"] == "profile")
+    assert profile["tabs"] and profile["tab_count"] >= 2
+    # Walk round the Ø16 hole's wall path: cut through everywhere except the tabs.
+    from shapely.geometry import Point
+    wall = Point(30, 30).buffer(8 - TOOL.cut_dia_mm / 2, quad_segs=64).exterior
+    pts = [wall.interpolate(d) for d in np.linspace(0, wall.length, 1000, endpoint=False)]
+    heights = [s.at(p.x, p.y) for p in pts]
+    held = [h > through + 0.05 for h in heights]
+    assert sum(1 for i in range(len(held)) if held[i] and not held[i - 1]) == profile["tab_count"]
+    assert max(heights) == pytest.approx(through + profile["tab_height_mm"], abs=0.01)  # tab tops
+    assert min(heights) == pytest.approx(through, abs=0.01)  # through between the tabs
+    assert s.at(30, 30) == 0.0  # the middle is left in place, held by the tabs
     assert s.at(30 + 22, 30) == pytest.approx(-2.0, abs=0.01)  # groove floor
 
 

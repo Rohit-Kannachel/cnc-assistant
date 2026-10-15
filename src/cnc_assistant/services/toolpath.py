@@ -3,11 +3,11 @@
 Coordinates match the geometry analysis: X/Y from the part's lower-left corner,
 Z = 0 at the top of the stock, cutting into negative Z.
 
-Every cut is built from one primitive, `_cut_ring`: follow a closed loop, ramping
+Every cut is built from one primitive, `_cut_loop`: follow a closed loop, ramping
 down from the depth already cut to the next depth, then go once more around at
 full depth. Clearing an area is a set of nested loops (inside-out); a small loop
-ramped down repeatedly is a helix. Tabs are spots on the outline loop where Z
-is held up.
+ramped down repeatedly is a helix. Tabs are spots on a profile loop (the outline,
+or the inside wall of a big through hole/cutout) where Z is held up.
 
 Safety rules the moves follow:
   - Rapids (G0) only happen at the safe height, or just above an area that is
@@ -30,9 +30,6 @@ RAMP_ANGLE_DEG = 3.0  # entry ramp slope (steepest allowed, for pockets and smal
 HELIX_PITCH_MM = 0.4  # Z drop per turn when helically boring a hole (Fusion used 0.38-0.52 here)
 HOVER_MM = 0.5  # how far above already-cut material the tool moves between loops
 THROUGH_EXTRA_MM = 0.2  # cut this much below the stock for through features (Fusion used 0.2-0.35)
-# Through holes/cutouts wider than this many tool diameters are cut round the wall only
-# (an inside profile) and the middle drops out as a slug, instead of clearing the area.
-PROFILE_THROUGH_MIN_DIAS = 2.5
 ROUGHING_ALLOWANCE_MM = 0.2  # wall stock left by roughing (matches the rules engine's note)
 HOLE_MATCH_TOL_MM = 0.05  # a hole within this of the tool size is pecked straight down
 
@@ -331,16 +328,6 @@ def _peck(b, x, y, target, op):
     b.retract()
 
 
-def _profile_only(feature, tool_r):
-    """Big enough through openings are cut round the wall only; the middle drops out."""
-    return feature.get("through") and min(feature["size"]) > PROFILE_THROUGH_MIN_DIAS * 2 * tool_r
-
-
-def _cut_through_profile(b, n, f, target, op, tool_r):
-    b.comment(f"Feature {n}: inside profile to Z-{target:g}; the middle drops out as a slug on the last pass")
-    _clear_area(b, f["polygon"], target, op, tool_r, stepover=tool_r, finish_only=True, helix=True)
-
-
 def _feature_target(feature, cut_depth):
     """How deep to cut a feature: through features go through the stock plus a little."""
     if feature.get("through"):
@@ -358,8 +345,6 @@ def _drilling(b, op, features, tool_r, cut_depth, result):
             b.comment(f"Feature {n}: peck drill dia {dia:g} to Z-{target:g}")
             c = hole.centroid
             _peck(b, c.x, c.y, target, op)
-        elif _profile_only(f, tool_r):
-            _cut_through_profile(b, n, f, target, op, tool_r)
         else:
             b.comment(f"Feature {n}: helical bore dia {dia:g} to Z-{target:g}")
             if not _clear_area(b, hole, target, op, tool_r, stepover=tool_r, helix=True):
@@ -374,9 +359,6 @@ def _area_features(op, features):
 def _pocketing(b, op, features, tool_r, cut_depth, result, stepover):
     for n, f in _area_features(op, features):
         target = _feature_target(f, cut_depth)
-        if _profile_only(f, tool_r):
-            _cut_through_profile(b, n, f, target, op, tool_r)
-            continue
         b.comment(f"Feature {n}: clear {f['type'].replace('_', ' ')} to Z-{target:g}")
         if not _clear_area(b, f["polygon"], target, op, tool_r, stepover=stepover):
             result.skipped.append(f"Feature {n} (op {op['order']}): too narrow for the tool, not cut.")
@@ -388,9 +370,9 @@ def _interior_area_features(features):
             if f["type"] in ("pocket", "step", "through_cutout")]
 
 
-def _roughing(b, op, features, tool_r, cut_depth, result):
-    # Through openings cut as a profile drop out as a slug: nothing to rough there.
-    targets = [(n, f) for n, f in _interior_area_features(features) if not _profile_only(f, tool_r)]
+def _roughing(b, op, features, tool_r, cut_depth, result, profiled):
+    # Through openings cut as an inside profile keep their middle: nothing to rough there.
+    targets = [(n, f) for n, f in _interior_area_features(features) if n not in profiled]
     if not targets:
         b.comment("Nothing to rough: no pockets, steps or cutouts. Skipped.")
         result.notes.append(f"Op {op['order']} (roughing): no pockets, steps or cutouts to rough, so no moves.")
@@ -402,8 +384,8 @@ def _roughing(b, op, features, tool_r, cut_depth, result):
                     allowance=ROUGHING_ALLOWANCE_MM)
 
 
-def _contour(b, op, features, tool_r, cut_depth, result):
-    targets = _interior_area_features(features)
+def _contour(b, op, features, tool_r, cut_depth, result, profiled):
+    targets = [(n, f) for n, f in _interior_area_features(features) if n not in profiled]
     if not targets:
         b.comment("No interior walls to finish. Skipped.")
         result.notes.append(f"Op {op['order']} (contour): no pocket/step walls to finish, so no moves.")
@@ -414,30 +396,53 @@ def _contour(b, op, features, tool_r, cut_depth, result):
                     stepover=tool_r, finish_only=True)
 
 
+def _tab_spec(op, loop, target, count=None):
+    """Tabs for a profile loop: `count` bridges evenly spaced along it (default: the op's),
+    each op["tab_width_mm"] wide, standing op["tab_height_mm"] above the cut bottom."""
+    n = count if count is not None else op.get("tab_count")
+    if not (op.get("tabs") and n):
+        return None
+    # Path gap = bridge width + tool diameter (the tool eats a radius on each side).
+    gap = op["tab_width_mm"] + 2 * op["_tool_r"]
+    spacing = loop.length / n
+    intervals = [((i + 0.5) * spacing - gap / 2, (i + 0.5) * spacing + gap / 2) for i in range(n)]
+    return intervals, -(target - op["tab_height_mm"])
+
+
+def _cut_profile(b, loop, target, op, *, tabs=None, ramp=None):
+    """Follow one closed loop down to `target` pass by pass, carrying on from where each
+    pass ended (no retracts), holding Z up over any tabs."""
+    ramp = ramp if ramp is not None else _ramp_len(op["step_down_mm"])
+    z_prev, s = 0.0, 0.0
+    for z in _depths(target, op["step_down_mm"]):
+        s = _cut_loop(b, loop, z_prev, z, feed=op["feed_rate_mmpm"], plunge=op["plunge_rate_mmpm"],
+                      ramp_len=ramp, start_s=s, tabs=tabs)
+        z_prev = z
+    b.retract()
+
+
+def _inside_profile(b, op, features, tool_r, cut_depth):
+    """Cut round the inside wall of big through holes/cutouts, with tabs holding the middle."""
+    target = cut_depth + THROUGH_EXTRA_MM
+    for n in op["feature_refs"]:
+        loops = _loops_of(features[n - 1]["polygon"].buffer(-tool_r))
+        if not loops:
+            continue
+        b.comment(f"Feature {n}: inside profile to Z-{target:g} with {op.get('tab_count') or 0} tabs "
+                  f"holding the middle")
+        spacing = loops[0].length / op["tab_count"] if op.get("tab_count") else None
+        for i, loop in enumerate(loops):
+            # The main wall gets the op's tab count; any island walls get tabs at the same spacing.
+            count = op.get("tab_count") if i == 0 or not spacing else max(2, round(loop.length / spacing))
+            _cut_profile(b, loop, target, op, tabs=_tab_spec(op, loop, target, count),
+                         ramp=_ramp_len(op["step_down_mm"], loop))
+
+
 def _outline(b, op, outline, tool_r, cut_depth):
     target = cut_depth + THROUGH_EXTRA_MM
-    tab_z = None
-    if op.get("tabs") and op.get("tab_count"):
-        tab_z = -(target - op["tab_height_mm"])
-    ramp = _ramp_len(op["step_down_mm"])
-
     for piece in _polys(outline):
-        path = Polygon(piece.exterior).buffer(tool_r)
-        loop = _loops_of(path, outside=True)[0]
-        tabs = None
-        if tab_z is not None:
-            n = op["tab_count"]
-            # Path gap = bridge width + tool diameter (the tool eats a radius on each side).
-            gap = op["tab_width_mm"] + 2 * tool_r
-            spacing = loop.length / n
-            intervals = [((i + 0.5) * spacing - gap / 2, (i + 0.5) * spacing + gap / 2) for i in range(n)]
-            tabs = (intervals, tab_z)
-        z_prev, s = 0.0, 0.0
-        for z in _depths(target, op["step_down_mm"]):
-            s = _cut_loop(b, loop, z_prev, z, feed=op["feed_rate_mmpm"], plunge=op["plunge_rate_mmpm"],
-                          ramp_len=ramp, start_s=s, tabs=tabs)
-            z_prev = z
-        b.retract()
+        loop = _loops_of(Polygon(piece.exterior).buffer(tool_r), outside=True)[0]
+        _cut_profile(b, loop, target, op, tabs=_tab_spec(op, loop, target))
 
 
 # ---------------------------------------------------------------------------
@@ -461,8 +466,12 @@ def build_toolpaths(plan, geometry, *, tool_dia_mm, cut_depth_mm, safe_z_mm=5.0)
     b = _Builder(safe_z_mm)
     result = ToolpathResult()
     b.rapid(z=safe_z_mm)
+    # Features cut as inside profiles (the middle stays, held by tabs): roughing and
+    # contour must leave them alone.
+    profiled = {n for op in plan["operations"] if op["type"] == "profile" for n in op["feature_refs"]}
 
     for op in plan["operations"]:
+        op = {**op, "_tool_r": tool_r}
         b.op = op["order"]
         b.comment(f"Op {op['order']}: {op['type'].upper()} - {op['description']}", spindle=op["spindle_rpm"])
 
@@ -479,9 +488,11 @@ def build_toolpaths(plan, geometry, *, tool_dia_mm, cut_depth_mm, safe_z_mm=5.0)
             stepover = op["step_over_mm"] or tool_r
             _pocketing(b, op, features, tool_r, cut_depth_mm, result, stepover)
         elif kind == "roughing":
-            _roughing(b, op, features, tool_r, cut_depth_mm, result)
+            _roughing(b, op, features, tool_r, cut_depth_mm, result, profiled)
         elif kind == "contour":
-            _contour(b, op, features, tool_r, cut_depth_mm, result)
+            _contour(b, op, features, tool_r, cut_depth_mm, result, profiled)
+        elif kind == "profile":
+            _inside_profile(b, op, features, tool_r, cut_depth_mm)
         elif kind == "outline":
             _outline(b, op, geometry["outline"], tool_r, cut_depth_mm)
         else:

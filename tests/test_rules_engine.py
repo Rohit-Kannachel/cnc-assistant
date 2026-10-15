@@ -91,3 +91,21 @@ def test_plan_serialises_to_json():
     json.dumps(data)
     assert data["operations"][0]["type"] == "drilling"
     assert "feature_refs" in data["operations"][0]
+
+
+def test_big_through_hole_becomes_a_tabbed_inside_profile():
+    tool = engine.Tool("t", engine.ToolType.FLAT_END_MILL, 3.175, 2)
+    mat = engine.Material("a", engine.MaterialType.ACRYLIC, 10000, 150, 50, 0.5, 1.4)
+    part = engine.PartFeatures(150, 150, 10, holes=[
+        engine.Hole(20.0, 10.0, through=True, feature_refs=[2]),   # big, through -> profile
+        engine.Hole(4.0, 10.0, through=True, feature_refs=[3]),    # small, through -> bored
+        engine.Hole(20.0, 4.0, through=False, feature_refs=[4]),   # big but blind -> bored
+    ])
+    p = engine.plan_job("lid", part, tool, mat)
+    kinds = [(op.op_type.value, op.feature_refs) for op in p.operations]
+    assert ("profile", [2]) in kinds
+    assert ("drilling", [3]) in kinds and ("drilling", [4]) in kinds
+    profile = next(op for op in p.operations if op.op_type == engine.OperationType.PROFILE)
+    assert profile.tabs and profile.tab_count >= engine.INSIDE_TAB_MIN
+    # Inside profiles come after the interior work and before the outline frees the part.
+    assert [op.op_type.value for op in p.operations][-2:] == ["profile", "outline"]

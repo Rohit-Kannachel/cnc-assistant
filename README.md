@@ -121,6 +121,7 @@ After every analysis the job is planned by the **rules engine**, [planner/rules_
 3. **Pocketing** for each pocket size (uses the material's step-over).
 4. **Trace** for engraving: non-through features 0.5 mm deep or less.
 5. **Contour** finish if the part has sloped/curved walls, or after roughing.
+5b. **Profile** for through holes and cutouts wider than 2.5 × the tool: cut round the inside wall only, with tabs (2.5 mm wide, 1 mm tall, about one per 28 mm, minimum 2) holding the middle until you snap it out. Smaller through holes are bored instead.
 6. **Outline** last, with 4–12 tabs (one per ~28 mm of outline, 2.5 mm wide), if *Cut free from stock* is ticked.
 
 [planner/adapter.py](src/cnc_assistant/planner/adapter.py) converts the app's data into the engine's inputs. It groups identical holes and pockets and records which feature numbers each operation covers, so toolpath generation can find their positions later. Steps and through cutouts are planned as pockets.
@@ -178,10 +179,11 @@ How it works ([services/setup.py](src/cnc_assistant/services/setup.py)): toolpat
 
 | Operation | Moves |
 |---|---|
-| drilling | Hole the same size as the tool: peck straight down one step-down at a time, lifting out between pecks. Up to 2.5 × the tool: helical bore (0.4 mm per turn) at the milling feed, cleared outward. Bigger *through* hole: cut round the wall only; the middle drops out as a slug on the last pass. |
+| drilling | Hole the same size as the tool: peck straight down one step-down at a time, lifting out between pecks. Up to 2.5 × the tool: helical bore (0.4 mm per turn) at the milling feed, cleared outward. Bigger *through* holes are planned as **profile** operations instead (below). |
 | pocketing / trace | Nested offset loops cleared inside-out, each depth entered with a 3° ramp. Big through cutouts are cut round the wall only (slug drops), like big holes. |
 | roughing | The same on pockets/steps/cutouts, leaving 0.2 mm on the walls. Does nothing if there are none. |
 | contour | One finishing loop around each pocket/step wall per depth. |
+| profile | Round the inside wall of a big through hole/cutout (helical entry, 0.4 mm per turn), with tabs holding the middle. |
 | outline | Around the outside, last, with tabs: Z is held up over each tab once the cut gets deeper than the tab. |
 
 Cutting direction is climb milling for a clockwise (M3) spindle. Operations the plan flags as impossible (the tool is bigger than the hole) are **left out** of the file and listed on the page.

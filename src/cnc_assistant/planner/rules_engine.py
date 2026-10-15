@@ -33,6 +33,7 @@ class OperationType(str, Enum):
     POCKETING = "pocketing"
     TRACE     = "trace"
     CONTOUR   = "contour"
+    PROFILE   = "profile"   # CHANGED: inside profile of a big through hole/cutout, with tabs
     OUTLINE   = "outline"
 
 
@@ -92,6 +93,7 @@ class Hole:
     # CHANGED: which features (1-based numbers from the STL analysis) this covers,
     # so the plan can point at them and toolpath generation can find their positions.
     feature_refs: List[int] = field(default_factory=list)
+    through: bool = False  # CHANGED: goes all the way through the part
 
 
 @dataclass
@@ -101,6 +103,7 @@ class Pocket:
     depth_mm: float
     count: int = 1
     feature_refs: List[int] = field(default_factory=list)  # CHANGED: see Hole
+    through: bool = False  # CHANGED: see Hole (a through cutout)
 
     @property
     def area_mm2(self):
@@ -365,6 +368,12 @@ TAB_SPACING_MM = 28.0
 TAB_WIDTH_MM = 2.5
 TAB_MIN, TAB_MAX = 4, 12
 
+# CHANGED: through holes/cutouts wider than this many tool diameters are cut round the
+# wall only (an inside profile) instead of clearing the whole area; tabs hold the
+# middle (the slug) in place until you knock it out. Smaller ones are bored/pocketed.
+PROFILE_MIN_DIAS = 2.5
+INSIDE_TAB_MIN = 2
+
 
 def calc_tab_count(perimeter_mm: float) -> int:
     """
@@ -373,6 +382,17 @@ def calc_tab_count(perimeter_mm: float) -> int:
     """
     count = round(perimeter_mm / TAB_SPACING_MM)
     return max(TAB_MIN, min(TAB_MAX, count))
+
+
+def calc_inside_tab_count(path_length_mm: float) -> int:
+    """CHANGED: tabs for an inside profile: same spacing as the outline, at least 2."""
+    return max(INSIDE_TAB_MIN, min(TAB_MAX, round(path_length_mm / TAB_SPACING_MM)))
+
+
+def needs_profile(item, tool: Tool) -> bool:
+    """CHANGED: should this through hole/cutout be cut as an inside profile with tabs?"""
+    width = item.diameter_mm if isinstance(item, Hole) else min(item.width_mm, item.height_mm)
+    return item.through and width > PROFILE_MIN_DIAS * tool.diameter_mm
 
 
 def calc_passes(depth_mm: float, step_down_mm: float) -> int:
@@ -599,6 +619,38 @@ def build_contour(order: int, part: PartFeatures, tool: Tool, feeds: dict) -> Op
     )
 
 
+def build_profile(order: int, item, tool: Tool, feeds: dict, part: PartFeatures) -> Operation:
+    """CHANGED: new op. Cut round the inside wall of a big through hole/cutout, with tabs,
+    so the middle stays put until you knock it out (much faster than clearing it)."""
+    if isinstance(item, Hole):
+        what = f"{item.diameter_mm}mm hole"
+        path_len = math.pi * (item.diameter_mm - tool.diameter_mm)
+    else:
+        what = f"{item.width_mm}×{item.height_mm}mm cutout"
+        path_len = 2 * (item.width_mm + item.height_mm) - 4 * tool.diameter_mm
+    tab_count = calc_inside_tab_count(path_len)
+    count = f"{item.count}× " if item.count > 1 else ""
+    depth = part.cutting_depth_mm
+    return Operation(
+        order=order,
+        op_type=OperationType.PROFILE,
+        description=f"Inside profile — cut round {count}{what}, {tab_count} tabs hold the middle",
+        spindle_rpm=feeds["rpm"],
+        feed_rate_mmpm=feeds["feed"],
+        plunge_rate_mmpm=feeds["plunge"],
+        step_down_mm=feeds["step_down"],
+        step_over_mm=None,
+        depth_mm=depth,
+        entry_type="helical",
+        tabs=True,
+        tab_count=tab_count,
+        tab_width_mm=TAB_WIDTH_MM,
+        tab_height_mm=min(1.0, depth * 0.25),
+        notes="Only the wall is cut. Snap the middle out after the job and clean up the tabs.",
+        feature_refs=item.feature_refs,
+    )
+
+
 def build_outline(order: int, part: PartFeatures, tool: Tool, feeds: dict) -> Operation:
     tab_count = calc_tab_count(part.perimeter_mm)
     passes = calc_passes(part.cutting_depth_mm, feeds["step_down"])
@@ -647,9 +699,12 @@ def plan_job(
     feeds = calc_feeds(tool, material)
     order = 1
 
+    # CHANGED: big through holes/cutouts are profiled (RULE 5b) instead of drilled/pocketed.
+    profiled = [h for h in part.holes if needs_profile(h, tool)] +                [p for p in part.pockets if needs_profile(p, tool)]
+
     # --- RULE 1: Drilling first (always) ---
     if part.has_holes:
-        for hole in part.holes:
+        for hole in [h for h in part.holes if h not in profiled]:
             op = build_drilling(order, hole, tool, feeds)
             operations.append(op)
             order += 1
@@ -663,7 +718,7 @@ def plan_job(
 
     # --- RULE 3: Pocketing (interior features) ---
     if part.has_pockets:
-        for i, pocket in enumerate(part.pockets, 1):
+        for i, pocket in enumerate([p for p in part.pockets if p not in profiled], 1):
             op = build_pocketing(order, pocket, tool, feeds, pocket_index=i)
             operations.append(op)
             order += 1
@@ -677,6 +732,12 @@ def plan_job(
     # --- RULE 5: Contour finish (if curved walls or after roughing) ---
     if part.has_curved_walls or (roughing and part.cut_from_stock):
         op = build_contour(order, part, tool, feeds)
+        operations.append(op)
+        order += 1
+
+    # --- RULE 5b (CHANGED): Inside profiles with tabs, before the outline frees the part ---
+    for item in profiled:
+        op = build_profile(order, item, tool, feeds, part)
         operations.append(op)
         order += 1
 

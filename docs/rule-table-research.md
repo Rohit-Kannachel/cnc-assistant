@@ -6,7 +6,7 @@ Research and measurements for improving `planner/rules_engine.py` and `services/
 - acrylic defaults from the Fusion programs (150 mm/min, plunge 50, step-down 0.5),
 - bores at the milling feed with a 0.4 mm/turn helix (R3),
 - a feature with an island is never a hole (R3),
-- big through holes and cutouts cut as an inside profile so the slug drops (R2),
+- big through holes and cutouts cut as an inside **profile** op with tabs holding the middle (R2),
 - 0.2 mm break-through,
 - tabs every ~28 mm, 2.5 mm wide,
 - G2/G3 arc output.

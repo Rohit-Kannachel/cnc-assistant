@@ -63,19 +63,19 @@ def to_part_features(analysis, cut_from_stock=True, stock_thickness_mm=None):
         if not through and f["depth"] - f["start_depth"] <= ENGRAVING_MAX_DEPTH_MM:
             engraving.append(num)
         elif f["type"] in HOLE_TYPES:
-            holes[(round(f["diameter"], 2), round(f["depth"], 2))].append(num)
+            holes[(round(f["diameter"], 2), round(f["depth"], 2), through)].append(num)
         else:  # pocket, through_cutout, step
-            pockets[(round(f["size"][0], 2), round(f["size"][1], 2), round(f["depth"], 2))].append(num)
+            pockets[(round(f["size"][0], 2), round(f["size"][1], 2), round(f["depth"], 2), through)].append(num)
 
     dims = analysis["dimensions"]
     part = engine.PartFeatures(
         dim_x_mm=dims["x"],
         dim_y_mm=dims["y"],
         dim_z_mm=dims["z"],
-        holes=[engine.Hole(diameter_mm=d, depth_mm=z, count=len(refs), feature_refs=refs)
-               for (d, z), refs in holes.items()],
-        pockets=[engine.Pocket(width_mm=w, height_mm=h, depth_mm=z, count=len(refs), feature_refs=refs)
-                 for (w, h, z), refs in pockets.items()],
+        holes=[engine.Hole(diameter_mm=d, depth_mm=z, count=len(refs), feature_refs=refs, through=t)
+               for (d, z, t), refs in holes.items()],
+        pockets=[engine.Pocket(width_mm=w, height_mm=h, depth_mm=z, count=len(refs), feature_refs=refs, through=t)
+                 for (w, h, z, t), refs in pockets.items()],
         has_engraving=bool(engraving),
         has_curved_walls=analysis.get("has_sloped_surfaces", False),
         cut_from_stock=cut_from_stock,
